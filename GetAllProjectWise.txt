@@ -1,0 +1,156 @@
+/*-
+     * #%L
+     * meghdootAugmentation.ts
+     * %%
+     * Copyright (C) 2025 PSCoE
+     * %%
+     * TODO: Define header text
+     * #L%
+     */
+    var __global = System.getContext() || (function () {
+        return this;
+    }).call(null);
+    var VROES = __global.__VROES || (__global.__VROES = System.getModule("com.vmware.pscoe.library.ecmascript").VROES()), tslib_1 = VROES.tslib, exports = {};
+    var Logger_1 = VROES.importLazy("com.vmware.pscoe.library.ts.logging/Logger");
+    var VraBaseService_1 = VROES.importLazy("com.vmware.pscoe.sbi.meghdootAugmentation.ts.actions/vra/services/VraBaseService");
+    var VraProjectService_1 = VROES.importLazy("com.vmware.pscoe.sbi.meghdootAugmentation.ts.actions/vra/services/VraProjectService");
+    var VcProvider_1 = VROES.importLazy("com.vmware.pscoe.sbi.meghdootAugmentation.ts.actions/vc/VcProvider");
+    var VmListBuilder_1 = VROES.importLazy("com.vmware.pscoe.sbi.meghdootAugmentation.ts.actions/reporting/tasks/VmListBuilder");
+    var VROES = System.getModule("com.vmware.pscoe.library.ecmascript").VROES();
+    var Task = VROES.import("default").from("com.vmware.pscoe.library.pipeline.Task");
+    var GetAllDeploymentsProjectWise = /** @class */ (function (_super) {
+        tslib_1.__extends(GetAllDeploymentsProjectWise, _super);
+        function GetAllDeploymentsProjectWise(context) {
+            var _this = _super.call(this, context) || this;
+            _this.logger = Logger_1._.Logger.getLogger("GetAllDeploymentsProjectWise");
+            _this.context = context;
+            _this.vraBaseService = new VraBaseService_1._.VraBaseService();
+            return _this;
+        }
+        GetAllDeploymentsProjectWise.prototype.validate = function () {
+            // No validation logic needed
+        };
+        GetAllDeploymentsProjectWise.prototype.prepare = function () {
+            // No preparation logic needed
+        };
+        GetAllDeploymentsProjectWise.prototype.execute = function () {
+            var _this = this;
+            var projectService = new VraProjectService_1._.VraProjectService();
+            var vcProvider = new VcProvider_1._.VcProvider();
+            var vmListBuilder = new VmListBuilder_1._.VmListBuilder();
+            // Fetch machines from the project
+            var machines = projectService.getProjectVms(this.context.projectId);
+            this.context.machines = machines;
+            // Log total number of VMs in the project
+            System.log("Number of VMs in the project: " + machines.length);
+            System.log("Project Machines: " + JSON.stringify(machines));
+            if (machines && machines.length > 0) {
+                // Extract instance UUIDs and vcUUIDs
+                var instanceUuidToVcUuidMap = machines
+                    .filter(function (machine) { var _a, _b; return ((_a = machine.customProperties) === null || _a === void 0 ? void 0 : _a.instanceUUID) && ((_b = machine.customProperties) === null || _b === void 0 ? void 0 : _b.vcUuid); })
+                    .map(function (machine) { return ({
+                    instanceUUID: machine.customProperties.instanceUUID,
+                    vcUUID: machine.customProperties.vcUuid,
+                }); });
+                if (instanceUuidToVcUuidMap.length > 0) {
+                    this.context.instanceUuidToVcUuidMap = instanceUuidToVcUuidMap;
+                    System.log("Instance UUID to vcUUID mapping: " + JSON.stringify(instanceUuidToVcUuidMap));
+                    var vmDetails = instanceUuidToVcUuidMap.forEach(function (mapping) {
+                        try {
+                            // Connect to vCenter
+                            var sdkConnection = vcProvider.getSdkConnection(mapping.vcUUID);
+                            if (!sdkConnection) {
+                                System.error("Failed to get SDK connection for vcUUID: " + mapping.vcUUID);
+                                return;
+                            }
+                            // Fetch VM details by instance UUID
+                            var vm = vcProvider.getVmByUuid(mapping.instanceUUID, sdkConnection);
+                            if (vm) {
+                                System.log("VM Found: " + vm.name + " (UUID: " + mapping.instanceUUID + ", vCenter: " + mapping.vcUUID + ")");
+                                var totalCpu = vm.config.hardware.numCPU || 0;
+                                var totalMemory = vm.config.hardware.memoryMB || 0;
+                                var ipAddress = vm.guest.ipAddress || "N/A";
+                                var cpuUsage = vm.summary.quickStats.overallCpuUsage || 0;
+                                var memoryUsage = (vm.summary.quickStats.guestMemoryUsage || 0 / 1024); // Convert MB to GB
+                                var usedStorage = 0;
+                                var totalStorage_1 = 0;
+                                if (vm.summary.storage) {
+                                    usedStorage = vm.summary.storage.committed || 0;
+                                    totalStorage_1 = vm.summary.storage.uncommitted + vm.summary.storage.committed || 0;
+                                    System.log("Used Storage: " + usedStorage + " KB, Total Storage: " + totalStorage_1 + " KB");
+                                }
+                                else {
+                                    if (vm.config.hardware.device) {
+                                        vm.config.hardware.device.forEach(function (device) {
+                                            if (device instanceof VcVirtualDisk) {
+                                                totalStorage_1 += device.capacityInKB;
+                                                System.log("Disk Capacity: " + device.capacityInKB + " KB");
+                                            }
+                                        });
+                                    }
+                                }
+                                var usedStorageGb = (usedStorage / (1024 * 1024)); //KB to GB
+                                var totalStorageGb = (totalStorage_1 / (1024 * 1024)); //KB to GB
+                                System.log("CPU Count: " + totalCpu);
+                                System.log("Memory (GB): " + (totalMemory / 1024));
+                                System.log("IP Address: " + ipAddress);
+                                System.log("Total Storage (GB): " + totalStorageGb);
+                                return {
+                                    name: vm.name,
+                                    ipAddress: ipAddress,
+                                    usedCpu: cpuUsage,
+                                    usedMemory: memoryUsage,
+                                    usedStorage: usedStorageGb,
+                                    totalStorage: totalStorageGb,
+                                    totalMemory: totalMemory,
+                                    totalCpu: totalCpu,
+                                };
+                                System.log("VM Name: " + vm.name + ", Used CPU: " + cpuUsage + " MHz, Used Memory: " + memoryUsage + " GB, Total Storage: " + totalStorageGb + " GB");
+                            }
+                            else {
+                                System.warn("No VM found for instanceUUID: " + mapping.instanceUUID);
+                            }
+                        }
+                        catch (error) {
+                            System.error("Error processing mapping: " + JSON.stringify(mapping) + " - " + error.message);
+                        }
+                    });
+                    // Store VM details in context
+                    this.context.vmDetails = vmDetails;
+                    System.log("VM details retrieved: " + JSON.stringify(vmDetails));
+                    // Generate the CSV for machines
+                    var csvData = machines.forEach(function (machine) { return vmListBuilder.addRow(_this.createVmListRow(machine)); });
+                    var csv = vmListBuilder.convertToCSV();
+                    var csvMimeAttachment = vmListBuilder.buildMimeAttachment(csv);
+                    this.context.contentInFile = csvMimeAttachment;
+                    System.log("Machines CSV: " + csvMimeAttachment);
+                }
+                else {
+                    System.warn("No instance UUID to vcUUID mappings found.");
+                }
+            }
+            else {
+                System.warn("No machines found in the project.");
+            }
+        };
+        GetAllDeploymentsProjectWise.prototype.createVmListRow = function (machine) {
+            var _a, _b;
+            var vmDetails = (_a = this.context.vmDetails) === null || _a === void 0 ? void 0 : _a.find(function (vm) { return vm.name === machine.hostname || {}; });
+            return {
+                vmName: machine.hostname || "N/A",
+                creationDate: machine.createdAt || "N/A",
+                guestOs: ((_b = machine.customProperties) === null || _b === void 0 ? void 0 : _b.osType) || "N/A",
+                ip: vmDetails.ipAddress || "N/A",
+                memoryGb: vmDetails.totalMemory ? vmDetails.totalMemory / 1024 + " GB" : "N/A",
+                vCPU: vmDetails.totalCpu || 0,
+                storageGb: vmDetails.totalStorage || "N/A",
+                usedMemoryGb: vmDetails.usedMemory ? vmDetails.usedMemory + " GB" : "N/A",
+                usedvCPU: vmDetails.usedCpu || 0,
+                usedstorageGb: vmDetails.usedStorage || "N/A",
+                owner: machine.owner || "N/A",
+            };
+        };
+        return GetAllDeploymentsProjectWise;
+    }(Task));
+    exports.GetAllDeploymentsProjectWise = GetAllDeploymentsProjectWise;
+    return exports;
