@@ -55,7 +55,7 @@
                 if (instanceUuidToVcUuidMap.length > 0) {
                     this.context.instanceUuidToVcUuidMap = instanceUuidToVcUuidMap;
                     System.log("Instance UUID to vcUUID mapping: " + JSON.stringify(instanceUuidToVcUuidMap));
-                    var vmDetails = instanceUuidToVcUuidMap.forEach(function (mapping) {
+                    var vmDetails = instanceUuidToVcUuidMap.map(function (mapping) {
                         try {
                             // Connect to vCenter
                             var sdkConnection = vcProvider.getSdkConnection(mapping.vcUUID);
@@ -76,18 +76,15 @@
                                 var totalStorage_1 = 0;
                                 if (vm.summary.storage) {
                                     usedStorage = vm.summary.storage.committed || 0;
-                                    totalStorage_1 = vm.summary.storage.uncommitted + vm.summary.storage.committed || 0;
+                                    totalStorage_1 = vm.summary.storage.uncommitted + usedStorage;
                                     System.log("Used Storage: " + usedStorage + " KB, Total Storage: " + totalStorage_1 + " KB");
                                 }
-                                else {
-                                    if (vm.config.hardware.device) {
-                                        vm.config.hardware.device.forEach(function (device) {
-                                            if (device instanceof VcVirtualDisk) {
-                                                totalStorage_1 += device.capacityInKB;
-                                                System.log("Disk Capacity: " + device.capacityInKB + " KB");
-                                            }
-                                        });
-                                    }
+                                else if (vm.config.hardware.device) {
+                                    vm.config.hardware.device.forEach(function (device) {
+                                        if (device instanceof VcVirtualDisk) {
+                                            totalStorage_1 += device.capacityInKB;
+                                        }
+                                    });
                                 }
                                 var usedStorageGb = (usedStorage / (1024 * 1024)); //KB to GB
                                 var totalStorageGb = (totalStorage_1 / (1024 * 1024)); //KB to GB
@@ -114,12 +111,13 @@
                         catch (error) {
                             System.error("Error processing mapping: " + JSON.stringify(mapping) + " - " + error.message);
                         }
-                    });
+                        return null; // Return null for failed cases
+                    }).filter(function (detail) { return detail !== null; }); // Filter out null results
                     // Store VM details in context
                     this.context.vmDetails = vmDetails;
                     System.log("VM details retrieved: " + JSON.stringify(vmDetails));
                     // Generate the CSV for machines
-                    var csvData = machines.forEach(function (machine) { return vmListBuilder.addRow(_this.createVmListRow(machine)); });
+                    machines.forEach(function (machine) { return vmListBuilder.addRow(_this.createVmListRow(machine)); });
                     var csv = vmListBuilder.convertToCSV();
                     var csvMimeAttachment = vmListBuilder.buildMimeAttachment(csv);
                     this.context.contentInFile = csvMimeAttachment;
@@ -140,13 +138,13 @@
                 vmName: machine.hostname || "N/A",
                 creationDate: machine.createdAt || "N/A",
                 guestOs: ((_b = machine.customProperties) === null || _b === void 0 ? void 0 : _b.osType) || "N/A",
-                ip: vmDetails.ipAddress || "N/A",
-                memoryGb: vmDetails.totalMemory ? vmDetails.totalMemory / 1024 + " GB" : "N/A",
-                vCPU: vmDetails.totalCpu || 0,
-                storageGb: vmDetails.totalStorage || "N/A",
-                usedMemoryGb: vmDetails.usedMemory ? vmDetails.usedMemory + " GB" : "N/A",
-                usedvCPU: vmDetails.usedCpu || 0,
-                usedstorageGb: vmDetails.usedStorage || "N/A",
+                ip: (vmDetails === null || vmDetails === void 0 ? void 0 : vmDetails.ipAddress) || "N/A",
+                memoryGb: (vmDetails === null || vmDetails === void 0 ? void 0 : vmDetails.totalMemory) ? vmDetails.totalMemory / 1024 + " GB" : "N/A",
+                vCPU: (vmDetails === null || vmDetails === void 0 ? void 0 : vmDetails.totalCpu) || 0,
+                storageGb: (vmDetails === null || vmDetails === void 0 ? void 0 : vmDetails.totalStorage) || "N/A",
+                usedMemoryGb: (vmDetails === null || vmDetails === void 0 ? void 0 : vmDetails.usedMemory) ? vmDetails.usedMemory + " GB" : "N/A",
+                usedvCPU: (vmDetails === null || vmDetails === void 0 ? void 0 : vmDetails.usedCpu) || 0,
+                usedstorageGb: (vmDetails === null || vmDetails === void 0 ? void 0 : vmDetails.usedStorage) || "N/A",
                 owner: machine.owner || "N/A",
             };
         };
